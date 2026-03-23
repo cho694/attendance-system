@@ -1,0 +1,437 @@
+
+import os, json, datetime, qrcode, hashlib
+from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
+
+app = Flask(__name__)
+app.secret_key = 'change-this-to-random-secret-key-12345'
+
+DATA_DIR = 'data'
+os.makedirs(DATA_DIR, exist_ok=True)
+
+def load(name):
+    p = os.path.join(DATA_DIR, f'{name}.json')
+    if os.path.exists(p):
+        with open(p) as f: return json.load(f)
+    return {}
+
+def save(name, data):
+    with open(os.path.join(DATA_DIR, f'{name}.json'), 'w') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+# ── 초기 데이터 구조 ──
+# attendance.json: { "2025-03-23": { "학번": {"name":"이름","team":"1","time":"HH:MM:SS"} } }
+# teams.json: { "팀번호": {"members":["학번1","학번2",...], "score": 0} }
+# missions.json: { "id": {"title":"..","desc":"..","type":"weekly/sudden","week":"1","created":"..","scores":{"팀번호":점수}} }
+# admin.json: {"password": "hashed"}
+
+def init_admin():
+    a = load('admin')
+    if not a:
+        a = {"password": hashlib.sha256("admin1234".encode()).hexdigest()}
+        save('admin', a)
+init_admin()
+
+def check_team_attendance(date):
+    att = load('attendance').get(date, {})
+    teams = load('teams')
+    result = {}
+    for tid, tdata in teams.items():
+        members = tdata.get('members', [])
+        if not members:
+            result[tid] = False
+            continue
+        result[tid] = all(m in att for m in members)
+    return result
+
+# ===================== HTML 템플릿 =====================
+BASE_CSS = """
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+.container{max-width:500px;margin:0 auto;padding:20px}
+.card{background:#1e293b;border-radius:16px;padding:24px;margin-bottom:16px;box-shadow:0 4px 24px rgba(0,0,0,.3)}
+h1{font-size:1.5rem;text-align:center;margin-bottom:20px;color:#38bdf8}
+h2{font-size:1.2rem;color:#38bdf8;margin-bottom:12px}
+input,select{width:100%;padding:12px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:12px;font-size:1rem}
+button{width:100%;padding:14px;border-radius:12px;border:none;font-size:1rem;font-weight:700;cursor:pointer;transition:.2s}
+.btn-primary{background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(59,130,246,.5)}
+.btn-danger{background:#ef4444;color:#fff;margin-top:8px}
+.btn-success{background:#10b981;color:#fff;margin-top:8px}
+.btn-sm{width:auto;padding:8px 16px;font-size:.85rem;display:inline-block;margin:4px}
+.tag{display:inline-block;padding:4px 10px;border-radius:20px;font-size:.75rem;font-weight:600}
+.tag-green{background:#065f46;color:#6ee7b7}
+.tag-red{background:#7f1d1d;color:#fca5a5}
+.tag-blue{background:#1e3a5f;color:#93c5fd}
+.msg{text-align:center;padding:16px;border-radius:10px;margin:12px 0;font-weight:600}
+.msg-ok{background:#065f46;color:#6ee7b7}
+.msg-err{background:#7f1d1d;color:#fca5a5}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{padding:8px;text-align:left;border-bottom:1px solid #334155;font-size:.9rem}
+th{color:#94a3b8}
+a{color:#38bdf8;text-decoration:none}
+.nav{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;justify-content:center}
+.back{display:block;text-align:center;margin-top:16px;color:#94a3b8}
+</style>
+"""
+
+# ── 출석 페이지 (학생용) ──
+ATTEND_HTML = BASE_CSS + """
+<div class="container">
+<h1>📋 출석 체크</h1>
+<div class="card">
+ <input id="sid" placeholder="학번 입력" />
+ <input id="sname" placeholder="이름 입력" />
+ <input id="steam" placeholder="팀 번호 입력" type="number" min="1" />
+ <button class="btn-primary" onclick="attend()">✅ 출석하기</button>
+ <div id="result"></div>
+</div>
+</div>
+<script>
+async function attend(){
+ const sid=document.getElementById('sid').value.trim();
+ const sname=document.getElementById('sname').value.trim();
+ const steam=document.getElementById('steam').value.trim();
+ if(!sid||!sname||!steam){alert('모든 항목을 입력하세요');return}
+ const r=await fetch('/api/attend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({student_id:sid,name:sname,team:steam})});
+ const d=await r.json();
+ document.getElementById('result').innerHTML=d.ok?'<div class="msg msg-ok">'+d.msg+'</div>':'<div class="msg msg-err">'+d.msg+'</div>';
+}
+</script>
+"""
+
+# ── 공지/미션 열람 (학생용) ──
+NOTICE_HTML = BASE_CSS + """
+<div class="container">
+<h1>📢 공지 & 미션</h1>
+{% for mid, m in missions.items()|sort(attribute='1.created', reverse=True) %}
+<div class="card">
+ <span class="tag {% if m.type=='weekly' %}tag-blue{% else %}tag-red{% endif %}">{{ '주간미션' if m.type=='weekly' else '돌발미션' if m.type=='sudden' else '공지' }}</span>
+ {% if m.week %}<span class="tag tag-green">{{m.week}}주차</span>{% endif %}
+ <h2 style="margin-top:8px">{{m.title}}</h2>
+ <p style="color:#94a3b8;margin-top:8px;white-space:pre-wrap">{{m.desc}}</p>
+ <p style="color:#475569;font-size:.8rem;margin-top:8px">{{m.created}}</p>
+</div>
+{% endfor %}
+{% if not missions %}<div class="card"><p style="text-align:center;color:#64748b">등록된 공지가 없습니다.</p></div>{% endif %}
+<a class="back" href="/">← 메인으로</a>
+</div>
+"""
+
+# ── 팀 점수 확인 (학생용) ──
+SCORES_HTML = BASE_CSS + """
+<div class="container">
+<h1>🏆 팀 점수 현황</h1>
+<div class="card">
+<table><tr><th>팀</th><th>점수</th><th>오늘 출석</th></tr>
+{% for tid, tdata in teams.items()|sort(attribute='0') %}
+<tr><td>{{tid}}팀</td><td style="font-weight:700;color:#fbbf24">{{tdata.score}}점</td>
+<td>{% if team_att.get(tid) %}<span class="tag tag-green">완료</span>{% else %}<span class="tag tag-red">미완</span>{% endif %}</td></tr>
+{% endfor %}
+</table>
+</div>
+<a class="back" href="/">← 메인으로</a>
+</div>
+"""
+
+# ── 메인 페이지 ──
+INDEX_HTML = BASE_CSS + """
+<div class="container">
+<h1>🎓 출석 & 미션 관리 시스템</h1>
+<div class="card" style="text-align:center">
+ <a href="/attend"><button class="btn-primary" style="margin-bottom:10px">📋 출석하기</button></a>
+ <a href="/notices"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#10b981,#3b82f6)">📢 공지 & 미션 확인</button></a>
+ <a href="/scores"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#f59e0b,#ef4444)">🏆 팀 점수 확인</button></a>
+ <hr style="border-color:#334155;margin:16px 0">
+ <a href="/admin/login"><button class="btn-sm" style="background:#334155;color:#94a3b8">🔐 관리자</button></a>
+</div>
+</div>
+"""
+
+# ── 관리자 로그인 ──
+ADMIN_LOGIN_HTML = BASE_CSS + """
+<div class="container">
+<h1>🔐 관리자 로그인</h1>
+<div class="card">
+ <form method="POST">
+  <input name="pw" type="password" placeholder="관리자 비밀번호" />
+  <button class="btn-primary" type="submit">로그인</button>
+ </form>
+ {% if error %}<div class="msg msg-err">{{error}}</div>{% endif %}
+</div>
+<a class="back" href="/">← 메인으로</a>
+</div>
+"""
+
+# ── 관리자 대시보드 ──
+ADMIN_DASH_HTML = BASE_CSS + """
+<div class="container">
+<h1>⚙️ 관리자 대시보드</h1>
+<div class="nav">
+ <a href="/admin/attendance"><button class="btn-sm btn-primary">출석현황</button></a>
+ <a href="/admin/teams"><button class="btn-sm btn-success">팀관리</button></a>
+ <a href="/admin/missions"><button class="btn-sm" style="background:#8b5cf6;color:#fff">미션관리</button></a>
+ <a href="/admin/logout"><button class="btn-sm btn-danger">로그아웃</button></a>
+</div>
+
+<div class="card">
+<h2>📊 오늘의 요약 ({{today}})</h2>
+<p>개인 출석: <b>{{att_count}}명</b></p>
+<p>팀 출석 완료: <b>{{team_ok}}/{{team_total}}팀</b></p>
+</div>
+<a class="back" href="/">← 메인으로</a>
+</div>
+"""
+
+# ── 관리자: 출석현황 ──
+ADMIN_ATT_HTML = BASE_CSS + """
+<div class="container">
+<h1>📋 출석 현황</h1>
+<div class="card">
+<label style="color:#94a3b8">날짜 선택</label>
+<input type="date" id="datesel" value="{{today}}" onchange="location.href='/admin/attendance?date='+this.value" />
+</div>
+<div class="card">
+<h2>{{sel_date}} 출석 ({{att_list|length}}명)</h2>
+<table><tr><th>학번</th><th>이름</th><th>팀</th><th>시간</th></tr>
+{% for sid, info in att_list.items() %}
+<tr><td>{{sid}}</td><td>{{info.name}}</td><td>{{info.team}}팀</td><td>{{info.time}}</td></tr>
+{% endfor %}
+</table>
+</div>
+<div class="card">
+<h2>팀 출석 현황</h2>
+<table><tr><th>팀</th><th>상태</th></tr>
+{% for tid, ok in team_att.items()|sort %}
+<tr><td>{{tid}}팀</td><td>{% if ok %}<span class="tag tag-green">전원출석</span>{% else %}<span class="tag tag-red">미완료</span>{% endif %}</td></tr>
+{% endfor %}
+</table>
+</div>
+<a class="back" href="/admin">← 대시보드</a>
+</div>
+"""
+
+# ── 관리자: 팀관리 ──
+ADMIN_TEAMS_HTML = BASE_CSS + """
+<div class="container">
+<h1>👥 팀 관리</h1>
+<div class="card">
+<h2>팀 추가/수정</h2>
+<form method="POST" action="/admin/teams/save">
+ <input name="team_id" placeholder="팀 번호" type="number" min="1" />
+ <input name="members" placeholder="팀원 학번 (쉼표 구분: 20210001,20210002)" />
+ <button class="btn-primary" type="submit">저장</button>
+</form>
+</div>
+{% for tid, tdata in teams.items()|sort(attribute='0') %}
+<div class="card">
+<h2>{{tid}}팀 <span style="color:#fbbf24">{{tdata.score}}점</span></h2>
+<p style="color:#94a3b8">팀원: {{tdata.members|join(', ')}}</p>
+<form method="POST" action="/admin/teams/delete" style="margin-top:8px">
+ <input type="hidden" name="team_id" value="{{tid}}"/>
+ <button class="btn-sm btn-danger" type="submit">삭제</button>
+</form>
+</div>
+{% endfor %}
+<a class="back" href="/admin">← 대시보드</a>
+</div>
+"""
+
+# ── 관리자: 미션관리 ──
+ADMIN_MISSIONS_HTML = BASE_CSS + """
+<div class="container">
+<h1>🎯 미션 & 공지 관리</h1>
+<div class="card">
+<h2>새 미션/공지 등록</h2>
+<form method="POST" action="/admin/missions/add">
+ <select name="type"><option value="weekly">주간 미션</option><option value="sudden">돌발 미션</option><option value="notice">공지</option></select>
+ <input name="week" placeholder="주차 (선택, 예: 1)" />
+ <input name="title" placeholder="제목" />
+ <textarea name="desc" placeholder="내용" rows="4" style="width:100%;padding:12px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:1rem;margin-bottom:12px"></textarea>
+ <button class="btn-primary" type="submit">등록</button>
+</form>
+</div>
+
+{% for mid, m in missions.items()|sort(attribute='1.created', reverse=True) %}
+<div class="card">
+ <span class="tag {% if m.type=='weekly' %}tag-blue{% elif m.type=='sudden' %}tag-red{% else %}tag-green{% endif %}">
+  {{ '주간미션' if m.type=='weekly' else '돌발미션' if m.type=='sudden' else '공지' }}
+ </span>
+ <h2 style="margin-top:8px">{{m.title}}</h2>
+ <p style="color:#94a3b8;white-space:pre-wrap">{{m.desc}}</p>
+
+ <form method="POST" action="/admin/missions/score" style="margin-top:12px">
+  <input type="hidden" name="mission_id" value="{{mid}}"/>
+  <div style="display:flex;gap:8px">
+   <input name="team_id" placeholder="팀번호" style="width:40%"/>
+   <input name="score" placeholder="점수" type="number" style="width:30%"/>
+   <button class="btn-sm btn-success" type="submit">부여</button>
+  </div>
+ </form>
+ {% if m.scores %}
+ <table style="margin-top:8px"><tr><th>팀</th><th>점수</th></tr>
+ {% for t,s in m.scores.items() %}<tr><td>{{t}}팀</td><td>{{s}}점</td></tr>{% endfor %}
+ </table>
+ {% endif %}
+
+ <form method="POST" action="/admin/missions/delete" style="margin-top:8px">
+  <input type="hidden" name="mission_id" value="{{mid}}"/>
+  <button class="btn-sm btn-danger" type="submit">삭제</button>
+ </form>
+</div>
+{% endfor %}
+<a class="back" href="/admin">← 대시보드</a>
+</div>
+"""
+
+# ===================== 라우트 =====================
+@app.route('/')
+def index():
+    return render_template_string(INDEX_HTML)
+
+@app.route('/attend')
+def attend_page():
+    return render_template_string(ATTEND_HTML)
+
+@app.route('/api/attend', methods=['POST'])
+def api_attend():
+    d = request.json
+    sid, name, team = d.get('student_id',''), d.get('name',''), d.get('team','')
+    if not all([sid, name, team]):
+        return jsonify(ok=False, msg='모든 항목을 입력하세요')
+    today = datetime.date.today().isoformat()
+    att = load('attendance')
+    if today not in att: att[today] = {}
+    if sid in att[today]:
+        return jsonify(ok=False, msg=f'{name}님은 이미 출석했습니다 ({att[today][sid]["time"]})')
+    att[today][sid] = {"name": name, "team": team, "time": datetime.datetime.now().strftime("%H:%M:%S")}
+    save('attendance', att)
+    # 팀 출석 체크
+    teams = load('teams')
+    team_msg = ""
+    if team in teams:
+        members = teams[team].get('members', [])
+        present = [m for m in members if m in att[today]]
+        if len(present) == len(members) and members:
+            team_msg = f"\n🎉 {team}팀 전원 출석 완료!"
+        else:
+            team_msg = f"\n👥 {team}팀: {len(present)}/{len(members)}명 출석"
+    return jsonify(ok=True, msg=f'✅ {name}님 출석 완료!{team_msg}')
+
+@app.route('/notices')
+def notices():
+    return render_template_string(NOTICE_HTML, missions=load('missions'))
+
+@app.route('/scores')
+def scores():
+    today = datetime.date.today().isoformat()
+    return render_template_string(SCORES_HTML, teams=load('teams'), team_att=check_team_attendance(today))
+
+# ── 관리자 ──
+@app.route('/admin/login', methods=['GET','POST'])
+def admin_login():
+    if request.method == 'POST':
+        pw = hashlib.sha256(request.form['pw'].encode()).hexdigest()
+        if pw == load('admin')['password']:
+            session['admin'] = True
+            return redirect('/admin')
+        return render_template_string(ADMIN_LOGIN_HTML, error='비밀번호가 틀렸습니다')
+    return render_template_string(ADMIN_LOGIN_HTML, error=None)
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('admin', None)
+    return redirect('/')
+
+def require_admin():
+    return session.get('admin') is True
+
+@app.route('/admin')
+def admin_dash():
+    if not require_admin(): return redirect('/admin/login')
+    today = datetime.date.today().isoformat()
+    att = load('attendance').get(today, {})
+    ta = check_team_attendance(today)
+    return render_template_string(ADMIN_DASH_HTML, today=today, att_count=len(att),
+        team_ok=sum(ta.values()), team_total=len(ta))
+
+@app.route('/admin/attendance')
+def admin_att():
+    if not require_admin(): return redirect('/admin/login')
+    today = datetime.date.today().isoformat()
+    sel = request.args.get('date', today)
+    att = load('attendance').get(sel, {})
+    return render_template_string(ADMIN_ATT_HTML, today=today, sel_date=sel, att_list=att, team_att=check_team_attendance(sel))
+
+@app.route('/admin/teams')
+def admin_teams():
+    if not require_admin(): return redirect('/admin/login')
+    return render_template_string(ADMIN_TEAMS_HTML, teams=load('teams'))
+
+@app.route('/admin/teams/save', methods=['POST'])
+def admin_teams_save():
+    if not require_admin(): return redirect('/admin/login')
+    tid = request.form['team_id']
+    members = [m.strip() for m in request.form['members'].split(',') if m.strip()]
+    teams = load('teams')
+    if tid in teams:
+        teams[tid]['members'] = members
+    else:
+        teams[tid] = {"members": members, "score": 0}
+    save('teams', teams)
+    return redirect('/admin/teams')
+
+@app.route('/admin/teams/delete', methods=['POST'])
+def admin_teams_delete():
+    if not require_admin(): return redirect('/admin/login')
+    teams = load('teams')
+    teams.pop(request.form['team_id'], None)
+    save('teams', teams)
+    return redirect('/admin/teams')
+
+@app.route('/admin/missions')
+def admin_missions():
+    if not require_admin(): return redirect('/admin/login')
+    return render_template_string(ADMIN_MISSIONS_HTML, missions=load('missions'))
+
+@app.route('/admin/missions/add', methods=['POST'])
+def admin_missions_add():
+    if not require_admin(): return redirect('/admin/login')
+    missions = load('missions')
+    mid = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
+    missions[mid] = {
+        "title": request.form['title'], "desc": request.form['desc'],
+        "type": request.form['type'], "week": request.form.get('week',''),
+        "created": datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), "scores": {}
+    }
+    save('missions', missions)
+    return redirect('/admin/missions')
+
+@app.route('/admin/missions/score', methods=['POST'])
+def admin_missions_score():
+    if not require_admin(): return redirect('/admin/login')
+    mid = request.form['mission_id']
+    tid = request.form['team_id']
+    sc = int(request.form['score'])
+    missions = load('missions')
+    if mid in missions:
+        missions[mid]['scores'][tid] = sc
+        save('missions', missions)
+        # 팀 총점 갱신
+        teams = load('teams')
+        if tid in teams:
+            total = sum(m['scores'].get(tid, 0) for m in missions.values())
+            teams[tid]['score'] = total
+            save('teams', teams)
+    return redirect('/admin/missions')
+
+@app.route('/admin/missions/delete', methods=['POST'])
+def admin_missions_delete():
+    if not require_admin(): return redirect('/admin/login')
+    missions = load('missions')
+    missions.pop(request.form['mission_id'], None)
+    save('missions', missions)
+    return redirect('/admin/missions')
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
