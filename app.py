@@ -5,13 +5,13 @@ from pymongo import MongoClient
 app = Flask(__name__)
 app.secret_key = 'change-this-to-random-secret-key-12345'
 
-# ===================== MongoDB 설정 (이 부분만 추가되었습니다) =====================
+# ===================== MongoDB 설정 =====================
 MONGO_URI = "mongodb+srv://choesubin2018_db_user:bYLATrVP7kyeVrgo@cluster0.qmvit80.mongodb.net/?appName=Cluster0"
 client = MongoClient(MONGO_URI)
 db = client['attendance_system']
 
 def load(name):
-    """파일 대신 MongoDB에서 데이터를 안전하게 불러옵니다."""
+    """MongoDB에서 데이터를 안전하게 불러옵니다."""
     col = db[name]
     doc = col.find_one({"_id": "main_data"})
     if doc:
@@ -19,16 +19,14 @@ def load(name):
     return {}
 
 def save(name, data):
-    """파일 대신 MongoDB에 데이터를 영구 저장합니다."""
+    """MongoDB에 데이터를 영구 저장합니다."""
     col = db[name]
     col.update_one(
         {"_id": "main_data"}, 
         {"$set": {"data": data}}, 
         upsert=True
     )
-# =====================================================================================
-
-# ↓↓↓ 여기서부터는 사용자님이 클로드와 만드신 app (4).py 원본 100% 그대로입니다 ↓↓↓
+# =========================================================
 
 def init_admin():
     a = load('admin')
@@ -56,8 +54,7 @@ def check_team_attendance(date):
         result[tid] = all(m in att for m in members)
     return result
 
-# board.json: { "id": {"author":"이름","student_id":"학번","title":"제목","content":"내용","created":"날짜","comments":[{"author":"이름","student_id":"학번","content":"댓글","created":"날짜"}]} }
-
+# ===================== HTML 템플릿 =====================
 BASE_CSS = """
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -96,17 +93,60 @@ a{color:#2563eb;text-decoration:none;font-weight:600}
 </style>
 """
 
+STUDENT_LOGIN_HTML = BASE_CSS + """
+<div class="container">
+<h1>🎓 학생 로그인</h1>
+<div class="card">
+ <form method="POST" action="/login">
+  <input name="student_id" placeholder="학번 입력" required />
+  <input name="pw" type="password" placeholder="비밀번호 입력 (초기비번: 1234)" required />
+  <button class="btn-primary" type="submit">로그인</button>
+ </form>
+ {% if error %}<div class="msg msg-err">{{error}}</div>{% endif %}
+</div>
+<a class="back" href="/">← 메인으로</a>
+</div>
+"""
+
+INDEX_HTML = BASE_CSS + """
+<div class="container">
+<h1>정진:政進</h1>
+<div class="card" style="text-align:center">
+ {% if student_id %}
+  <div style="background:rgba(255,255,255,0.6); padding:12px; border-radius:12px; margin-bottom:15px; border:1px solid #e5e7eb;">
+   <p style="font-weight:bold; color:#1a1a2e; margin-bottom:10px; font-size:1.1rem;">👤 {{student_name}}님 환영합니다!</p>
+   <form method="POST" action="/change_pw" style="display:flex; gap:6px; justify-content:center; margin-bottom:8px;">
+    <input type="password" name="new_pw" placeholder="새 비밀번호 설정" style="width:60%; margin:0; padding:10px;" required>
+    <button class="btn-sm btn-danger" style="margin:0;">비번변경</button>
+   </form>
+   <a href="/logout" style="display:inline-block; font-size:0.9rem; color:#dc2626; font-weight:bold;">[로그아웃]</a>
+  </div>
+ {% else %}
+  <a href="/login"><button class="btn-primary" style="margin-bottom:10px; background:linear-gradient(135deg,#3b82f6,#2563eb)">👤 학생 로그인</button></a>
+ {% endif %}
+
+ <a href="/attend"><button class="btn-primary" style="margin-bottom:10px">📋 출석하기</button></a>
+ <a href="/notices"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#059669,#2563eb)">📢 공지 & 미션 확인</button></a>
+ <a href="/scores"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#d97706,#dc2626)">🏆 팀 점수 확인</button></a>
+ <a href="/board"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#8b5cf6,#ec4899)">💬 자유게시판</button></a>
+ <hr style="border-color:#e5e7eb;margin:16px 0">
+ <a href="/admin/login"><button class="btn-sm" style="background:#e5e7eb;color:#6b7280">🔐 관리자</button></a>
+</div>
+</div>
+"""
+
 ATTEND_HTML = BASE_CSS + """
 <div class="container">
 <h1>📋 출석 체크</h1>
 <div class="card">
  <div id="status" style="margin-bottom:12px"></div>
- <input id="sid" placeholder="학번 입력" />
- <input id="sname" placeholder="이름 입력" />
- <input id="steam" placeholder="팀 번호 입력" type="number" min="1" />
+ <input id="sid" placeholder="학번 입력" value="{{student_id}}" {% if student_id %}readonly style="background:#f3f4f6; color:#9ca3af;"{% endif %} />
+ <input id="sname" placeholder="이름 입력" value="{{student_name}}" {% if student_name %}readonly style="background:#f3f4f6; color:#9ca3af;"{% endif %} />
+ <input id="steam" placeholder="팀 번호 입력" type="number" min="1" value="{{student_team}}" {% if student_team %}readonly style="background:#f3f4f6; color:#9ca3af;"{% endif %} />
  <button class="btn-primary" onclick="attend()">✅ 출석하기</button>
  <div id="result"></div>
 </div>
+<a class="back" href="/">← 메인으로</a>
 </div>
 <script>
 async function checkStatus(){
@@ -159,33 +199,20 @@ SCORES_HTML = BASE_CSS + """
 </div>
 """
 
-INDEX_HTML = BASE_CSS + """
-<div class="container">
-<h1>정진:政進</h1>
-<div class="card" style="text-align:center">
- <a href="/attend"><button class="btn-primary" style="margin-bottom:10px">📋 출석하기</button></a>
- <a href="/notices"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#059669,#2563eb)">📢 공지 & 미션 확인</button></a>
- <a href="/scores"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#d97706,#dc2626)">🏆 팀 점수 확인</button></a>
- <a href="/board"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#8b5cf6,#ec4899)">💬 자유게시판</button></a>
- <hr style="border-color:#e5e7eb;margin:16px 0">
- <a href="/admin/login"><button class="btn-sm" style="background:#e5e7eb;color:#6b7280">🔐 관리자</button></a>
-</div>
-</div>
-"""
-
-# ── 자유게시판 ──
 BOARD_HTML = BASE_CSS + """
 <div class="container">
 <h1>💬 자유게시판</h1>
 <div class="card">
 <h2>새 글 작성</h2>
+{% if student_id %}
 <form method="POST" action="/board/write">
- <input name="student_id" placeholder="학번" required />
- <input name="author" placeholder="이름" required />
  <input name="title" placeholder="제목" required />
  <textarea name="content" placeholder="내용" rows="4" required></textarea>
  <button class="btn-primary" type="submit">✏️ 작성하기</button>
 </form>
+{% else %}
+<p style="text-align:center; color:#dc2626; font-weight:bold; padding:10px;">글을 작성하려면 <a href="/login" style="color:#2563eb; text-decoration:underline;">로그인</a>이 필요합니다.</p>
+{% endif %}
 </div>
 
 {% for pid, p in posts %}
@@ -206,15 +233,15 @@ BOARD_HTML = BASE_CSS + """
  </div>
  {% endif %}
 
+ {% if student_id %}
  <form method="POST" action="/board/comment" style="margin-top:12px">
   <input type="hidden" name="post_id" value="{{pid}}"/>
   <div style="display:flex;gap:6px;flex-wrap:wrap">
-   <input name="student_id" placeholder="학번" style="width:25%;min-width:80px" required />
-   <input name="author" placeholder="이름" style="width:25%;min-width:80px" required />
    <input name="content" placeholder="댓글 입력" style="flex:1;min-width:120px" required />
    <button class="btn-sm btn-success" type="submit" style="margin:0">💬</button>
   </div>
  </form>
+ {% endif %}
 
  {% if is_admin %}
  <form method="POST" action="/board/delete" style="margin-top:8px">
@@ -359,10 +386,19 @@ ADMIN_STUDENTS_HTML = BASE_CSS + """
 
 <div class="card">
 <h2>등록된 학생 ({{students|length}}명)</h2>
-<table><tr><th>학번</th><th>이름</th><th>팀</th><th>삭제</th></tr>
+<table><tr><th>학번</th><th>이름</th><th>팀</th><th>관리</th></tr>
 {% for sid, info in students.items()|sort(attribute='0') %}
 <tr><td>{{sid}}</td><td>{{info.name}}</td><td>{{info.team}}팀</td>
-<td><form method="POST" action="/admin/students/delete" style="margin:0"><input type="hidden" name="student_id" value="{{sid}}"/><button class="btn-sm btn-danger" type="submit" style="margin:0;padding:4px 8px">X</button></form></td></tr>
+<td>
+ <form method="POST" action="/admin/students/reset_pw" style="margin:0; display:inline-block;">
+  <input type="hidden" name="student_id" value="{{sid}}"/>
+  <button class="btn-sm" type="submit" style="margin:0;padding:4px 6px; background:#f59e0b; color:white; border:none; border-radius:4px; cursor:pointer;" onclick="return confirm('{{info.name}} 학생의 비밀번호를 1234로 초기화할까요?');">비번초기화</button>
+ </form>
+ <form method="POST" action="/admin/students/delete" style="margin:0; display:inline-block;">
+  <input type="hidden" name="student_id" value="{{sid}}"/>
+  <button class="btn-sm btn-danger" type="submit" style="margin:0;padding:4px 8px" onclick="return confirm('정말 삭제하시겠습니까?');">X</button>
+ </form>
+</td></tr>
 {% endfor %}
 </table>
 </div>
@@ -424,14 +460,57 @@ ADMIN_MISSIONS_HTML = BASE_CSS + """
 </div>
 """
 
-# ===================== 라우트 =====================
+# ===================== 학생 라우트 =====================
 @app.route('/')
 def index():
-    return render_template_string(INDEX_HTML)
+    return render_template_string(INDEX_HTML, 
+                                  student_id=session.get('student_id'), 
+                                  student_name=session.get('student_name'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        sid = request.form['student_id'].strip()
+        pw = request.form['pw'].strip()
+        students = load('students')
+        
+        if sid in students:
+            # 해시로 비번 검사
+            if students[sid].get('pw') == hashlib.sha256(pw.encode()).hexdigest():
+                session['student_id'] = sid
+                session['student_name'] = students[sid]['name']
+                session['student_team'] = students[sid]['team']
+                return redirect('/')
+        error = '학번 또는 비밀번호가 틀립니다.'
+    return render_template_string(STUDENT_LOGIN_HTML, error=error)
+
+@app.route('/logout')
+def logout():
+    session.pop('student_id', None)
+    session.pop('student_name', None)
+    session.pop('student_team', None)
+    return redirect('/')
+
+@app.route('/change_pw', methods=['POST'])
+def change_pw():
+    if 'student_id' not in session:
+        return redirect('/login')
+    sid = session['student_id']
+    new_pw = request.form['new_pw'].strip()
+    students = load('students')
+    if sid in students:
+        students[sid]['pw'] = hashlib.sha256(new_pw.encode()).hexdigest()
+        save('students', students)
+    # 비번 변경 완료 후 다시 로그인하도록 처리할 수 있지만 편의상 로그아웃 처리
+    return "<script>alert('비밀번호가 성공적으로 변경되었습니다. 새 비밀번호로 다시 로그인해주세요.'); location.href='/logout';</script>"
 
 @app.route('/attend')
 def attend_page():
-    return render_template_string(ATTEND_HTML)
+    return render_template_string(ATTEND_HTML, 
+                                  student_id=session.get('student_id', ''), 
+                                  student_name=session.get('student_name', ''), 
+                                  student_team=session.get('student_team', ''))
 
 @app.route('/api/attend_status')
 def api_attend_status():
@@ -452,7 +531,7 @@ def api_attend():
         s = students[sid]
         if s['name'] != name:
             return jsonify(ok=False, msg='❌ 학번과 이름이 일치하지 않습니다.')
-        if s['team'] != team:
+        if str(s['team']) != str(team):
             return jsonify(ok=False, msg='❌ 학번과 팀 번호가 일치하지 않습니다.')
     today = datetime.date.today().isoformat()
     att = load('attendance')
@@ -463,8 +542,8 @@ def api_attend():
     save('attendance', att)
     teams = load('teams')
     team_msg = ""
-    if team in teams:
-        members = teams[team].get('members', [])
+    if str(team) in teams:
+        members = teams[str(team)].get('members', [])
         present = [m for m in members if m in att[today]]
         if len(present) == len(members) and members:
             team_msg = f"\n🎉 {team}팀 전원 출석 완료!"
@@ -488,20 +567,21 @@ def board():
     board_data = load('board')
     posts = sorted(board_data.items(), key=lambda x: x[1].get('created',''), reverse=True)
     is_admin = session.get('admin', False)
-    return render_template_string(BOARD_HTML, posts=posts, is_admin=is_admin)
+    return render_template_string(BOARD_HTML, posts=posts, is_admin=is_admin, student_id=session.get('student_id'))
 
 @app.route('/board/write', methods=['POST'])
 def board_write():
-    sid = request.form['student_id'].strip()
-    author = request.form['author'].strip()
+    if 'student_id' not in session:
+        return redirect('/login')
+    
+    sid = session['student_id']
+    author = session['student_name']
     title = request.form['title'].strip()
     content = request.form['content'].strip()
-    if not all([sid, author, title, content]):
+    
+    if not all([title, content]):
         return redirect('/board')
-    # 등록된 학생인지 확인
-    students = load('students')
-    if students and sid not in students:
-        return redirect('/board')
+        
     board_data = load('board')
     pid = datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')
     board_data[pid] = {
@@ -513,15 +593,17 @@ def board_write():
 
 @app.route('/board/comment', methods=['POST'])
 def board_comment():
+    if 'student_id' not in session:
+        return redirect('/login')
+        
     pid = request.form['post_id']
-    sid = request.form['student_id'].strip()
-    author = request.form['author'].strip()
+    sid = session['student_id']
+    author = session['student_name']
     content = request.form['content'].strip()
-    if not all([sid, author, content]):
+    
+    if not content:
         return redirect('/board')
-    students = load('students')
-    if students and sid not in students:
-        return redirect('/board')
+        
     board_data = load('board')
     if pid in board_data:
         board_data[pid]['comments'].append({
@@ -540,7 +622,7 @@ def board_delete():
     save('board', board_data)
     return redirect('/board')
 
-# ── 관리자 ──
+# ===================== 관리자 라우트 =====================
 @app.route('/admin/login', methods=['GET','POST'])
 def admin_login():
     if request.method == 'POST':
@@ -646,7 +728,9 @@ def admin_students_add():
     if not all([sid, name, team]):
         return redirect('/admin/students?msg=모든 항목을 입력하세요&ok=0')
     students = load('students')
-    students[sid] = {"name": name, "team": team}
+    # 새로 등록되는 학생은 무조건 초기비밀번호 1234
+    default_pw = hashlib.sha256("1234".encode()).hexdigest()
+    students[sid] = {"name": name, "team": team, "pw": default_pw}
     save('students', students)
     return redirect(f'/admin/students?msg={name}({sid}) 추가 완료&ok=1')
 
@@ -658,14 +742,26 @@ def admin_students_bulk():
         return redirect('/admin/students?msg=내용을 입력하세요&ok=0')
     students = load('students')
     count = 0
+    default_pw = hashlib.sha256("1234".encode()).hexdigest()
     for line in bulk.split('\n'):
         parts = [p.strip() for p in line.split(',')]
         if len(parts) == 3:
             sid, name, team = parts
-            students[sid] = {"name": name, "team": team}
+            students[sid] = {"name": name, "team": team, "pw": default_pw}
             count += 1
     save('students', students)
     return redirect(f'/admin/students?msg={count}명 일괄 추가 완료&ok=1')
+
+@app.route('/admin/students/reset_pw', methods=['POST'])
+def admin_students_reset_pw():
+    if not require_admin(): return redirect('/admin/login')
+    sid = request.form['student_id']
+    students = load('students')
+    if sid in students:
+        # 1234로 비밀번호 초기화
+        students[sid]['pw'] = hashlib.sha256("1234".encode()).hexdigest()
+        save('students', students)
+    return redirect(f'/admin/students?msg={sid} 비밀번호가 1234로 초기화되었습니다.&ok=1')
 
 @app.route('/admin/students/delete', methods=['POST'])
 def admin_students_delete():
