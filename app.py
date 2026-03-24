@@ -140,7 +140,7 @@ SCORES_HTML = BASE_CSS + """
 
 INDEX_HTML = BASE_CSS + """
 <div class="container">
-<h1>🎓 출석 & 미션 관리 시스템</h1>
+<h1>정진:政進</h1>
 <div class="card" style="text-align:center">
  <a href="/attend"><button class="btn-primary" style="margin-bottom:10px">📋 출석하기</button></a>
  <a href="/notices"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#10b981,#3b82f6)">📢 공지 & 미션 확인</button></a>
