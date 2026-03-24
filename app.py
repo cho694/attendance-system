@@ -1,22 +1,32 @@
-
 import os, json, datetime, hashlib
 from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
+from pymongo import MongoClient
 
 app = Flask(__name__)
 app.secret_key = 'change-this-to-random-secret-key-12345'
 
-DATA_DIR = 'data'
-os.makedirs(DATA_DIR, exist_ok=True)
+# ===================== MongoDB 설정 =====================
+# ⚠️ <db_password> 부분을 실제 비밀번호로 변경하세요! (꺾쇠 기호 <> 도 지워야 합니다)
+MONGO_URI = os.environ.get('MONGO_URI', 'mongodb+srv://choesubin2018_db_user:bYLATrVP7kyeVrgo@cluster0.qmvit80.mongodb.net/?appName=Cluster0')
+client = MongoClient(MONGO_URI)
+db = client['attendance_system'] # 생성될 데이터베이스 이름
 
 def load(name):
-    p = os.path.join(DATA_DIR, f'{name}.json')
-    if os.path.exists(p):
-        with open(p) as f: return json.load(f)
+    """MongoDB에서 데이터를 불러옵니다."""
+    col = db[name]
+    doc = col.find_one({"_id": "main_data"})
+    if doc:
+        return doc.get('data', {})
     return {}
 
 def save(name, data):
-    with open(os.path.join(DATA_DIR, f'{name}.json'), 'w') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    """MongoDB에 데이터를 저장(덮어쓰기)합니다."""
+    col = db[name]
+    col.update_one(
+        {"_id": "main_data"}, 
+        {"$set": {"data": data}}, 
+        upsert=True
+    )
 
 def init_admin():
     a = load('admin')
@@ -44,8 +54,7 @@ def check_team_attendance(date):
         result[tid] = all(m in att for m in members)
     return result
 
-# board.json: { "id": {"author":"이름","student_id":"학번","title":"제목","content":"내용","created":"날짜","comments":[{"author":"이름","student_id":"학번","content":"댓글","created":"날짜"}]} }
-
+# ===================== HTML 템플릿 =====================
 BASE_CSS = """
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -161,7 +170,6 @@ INDEX_HTML = BASE_CSS + """
 </div>
 """
 
-# ── 자유게시판 ──
 BOARD_HTML = BASE_CSS + """
 <div class="container">
 <h1>💬 자유게시판</h1>
@@ -470,7 +478,6 @@ def scores():
     teams_sorted = sorted(teams.items(), key=lambda x: x[1].get('score',0), reverse=True)
     return render_template_string(SCORES_HTML, teams_sorted=teams_sorted)
 
-# ── 자유게시판 ──
 @app.route('/board')
 def board():
     board_data = load('board')
@@ -486,7 +493,6 @@ def board_write():
     content = request.form['content'].strip()
     if not all([sid, author, title, content]):
         return redirect('/board')
-    # 등록된 학생인지 확인
     students = load('students')
     if students and sid not in students:
         return redirect('/board')
@@ -528,7 +534,6 @@ def board_delete():
     save('board', board_data)
     return redirect('/board')
 
-# ── 관리자 ──
 @app.route('/admin/login', methods=['GET','POST'])
 def admin_login():
     if request.method == 'POST':
@@ -711,6 +716,12 @@ def admin_missions_delete():
     missions.pop(request.form['mission_id'], None)
     save('missions', missions)
     return redirect('/admin/missions')
+
+# ===================== 서버 잠듦 방지 =====================
+@app.route('/keep-alive')
+def keep_alive():
+    """크론잡(cron-job) 서비스가 주기적으로 접속하여 서버를 깨워두는 역할"""
+    return "I am alive!", 200
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
