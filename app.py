@@ -822,10 +822,11 @@ def admin_missions_delete():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
-    # --- 서버 잠들기 방지용 (Cron) ---
+   # --- 서버 잠들기 방지 전용 경로 (로그인 체크 안 함) ---
 @app.route('/keep-alive')
 def keep_alive():
     return "I am awake!", 200
 
+# (원래 있던 서버 실행 코드)
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
