@@ -47,7 +47,7 @@ def check_team_attendance(date):
 BASE_CSS = """
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+body{font-family:'Segoe UI',sans-serif;background:url('/static/bg.png') no-repeat center center fixed;background-size:cover;color:#e2e8f0;min-height:100vh}
 .container{max-width:500px;margin:0 auto;padding:20px}
 .card{background:#1e293b;border-radius:16px;padding:24px;margin-bottom:16px;box-shadow:0 4px 24px rgba(0,0,0,.3)}
 h1{font-size:1.5rem;text-align:center;margin-bottom:20px;color:#38bdf8}
