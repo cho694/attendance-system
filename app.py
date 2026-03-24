@@ -44,6 +44,8 @@ def check_team_attendance(date):
         result[tid] = all(m in att for m in members)
     return result
 
+# board.json: { "id": {"author":"이름","student_id":"학번","title":"제목","content":"내용","created":"날짜","comments":[{"author":"이름","student_id":"학번","content":"댓글","created":"날짜"}]} }
+
 BASE_CSS = """
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -75,6 +77,10 @@ td{color:#1a1a2e}
 a{color:#2563eb;text-decoration:none;font-weight:600}
 .nav{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;justify-content:center}
 .back{display:block;text-align:center;margin-top:16px;color:#6b7280;font-weight:600}
+.comment{background:rgba(243,244,246,0.8);border-radius:10px;padding:12px;margin-top:8px;border-left:3px solid #2563eb}
+.comment-author{font-weight:700;color:#2563eb;font-size:.85rem}
+.comment-time{color:#9ca3af;font-size:.75rem}
+.comment-content{color:#1a1a2e;margin-top:4px;font-size:.9rem}
 </style>
 """
 
@@ -148,9 +154,67 @@ INDEX_HTML = BASE_CSS + """
  <a href="/attend"><button class="btn-primary" style="margin-bottom:10px">📋 출석하기</button></a>
  <a href="/notices"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#059669,#2563eb)">📢 공지 & 미션 확인</button></a>
  <a href="/scores"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#d97706,#dc2626)">🏆 팀 점수 확인</button></a>
+ <a href="/board"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#8b5cf6,#ec4899)">💬 자유게시판</button></a>
  <hr style="border-color:#e5e7eb;margin:16px 0">
  <a href="/admin/login"><button class="btn-sm" style="background:#e5e7eb;color:#6b7280">🔐 관리자</button></a>
 </div>
+</div>
+"""
+
+# ── 자유게시판 ──
+BOARD_HTML = BASE_CSS + """
+<div class="container">
+<h1>💬 자유게시판</h1>
+<div class="card">
+<h2>새 글 작성</h2>
+<form method="POST" action="/board/write">
+ <input name="student_id" placeholder="학번" required />
+ <input name="author" placeholder="이름" required />
+ <input name="title" placeholder="제목" required />
+ <textarea name="content" placeholder="내용" rows="4" required></textarea>
+ <button class="btn-primary" type="submit">✏️ 작성하기</button>
+</form>
+</div>
+
+{% for pid, p in posts %}
+<div class="card">
+ <h2 style="margin-bottom:4px">{{p.title}}</h2>
+ <p style="color:#6b7280;font-size:.8rem">{{p.author}} ({{p.student_id}}) · {{p.created}}</p>
+ <p style="color:#1a1a2e;margin-top:8px;white-space:pre-wrap">{{p.content}}</p>
+
+ {% if p.comments %}
+ <div style="margin-top:12px">
+  {% for c in p.comments %}
+  <div class="comment">
+   <span class="comment-author">{{c.author}} ({{c.student_id}})</span>
+   <span class="comment-time"> · {{c.created}}</span>
+   <p class="comment-content">{{c.content}}</p>
+  </div>
+  {% endfor %}
+ </div>
+ {% endif %}
+
+ <form method="POST" action="/board/comment" style="margin-top:12px">
+  <input type="hidden" name="post_id" value="{{pid}}"/>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+   <input name="student_id" placeholder="학번" style="width:25%;min-width:80px" required />
+   <input name="author" placeholder="이름" style="width:25%;min-width:80px" required />
+   <input name="content" placeholder="댓글 입력" style="flex:1;min-width:120px" required />
+   <button class="btn-sm btn-success" type="submit" style="margin:0">💬</button>
+  </div>
+ </form>
+
+ {% if is_admin %}
+ <form method="POST" action="/board/delete" style="margin-top:8px">
+  <input type="hidden" name="post_id" value="{{pid}}"/>
+  <button class="btn-sm btn-danger" type="submit">삭제</button>
+ </form>
+ {% endif %}
+</div>
+{% endfor %}
+
+{% if not posts %}<div class="card"><p style="text-align:center;color:#9ca3af">아직 게시글이 없습니다.</p></div>{% endif %}
+<a class="back" href="/">← 메인으로</a>
 </div>
 """
 
@@ -176,6 +240,7 @@ ADMIN_DASH_HTML = BASE_CSS + """
  <a href="/admin/teams"><button class="btn-sm btn-success">팀관리</button></a>
  <a href="/admin/students"><button class="btn-sm" style="background:#d97706;color:#fff">학생관리</button></a>
  <a href="/admin/missions"><button class="btn-sm" style="background:#7c3aed;color:#fff">미션관리</button></a>
+ <a href="/board"><button class="btn-sm" style="background:#ec4899;color:#fff">게시판</button></a>
  <a href="/admin/logout"><button class="btn-sm btn-danger">로그아웃</button></a>
 </div>
 
@@ -405,6 +470,65 @@ def scores():
     teams_sorted = sorted(teams.items(), key=lambda x: x[1].get('score',0), reverse=True)
     return render_template_string(SCORES_HTML, teams_sorted=teams_sorted)
 
+# ── 자유게시판 ──
+@app.route('/board')
+def board():
+    board_data = load('board')
+    posts = sorted(board_data.items(), key=lambda x: x[1].get('created',''), reverse=True)
+    is_admin = session.get('admin', False)
+    return render_template_string(BOARD_HTML, posts=posts, is_admin=is_admin)
+
+@app.route('/board/write', methods=['POST'])
+def board_write():
+    sid = request.form['student_id'].strip()
+    author = request.form['author'].strip()
+    title = request.form['title'].strip()
+    content = request.form['content'].strip()
+    if not all([sid, author, title, content]):
+        return redirect('/board')
+    # 등록된 학생인지 확인
+    students = load('students')
+    if students and sid not in students:
+        return redirect('/board')
+    board_data = load('board')
+    pid = datetime.datetime.now().strftime('%Y%m%d%H%M%S%f')
+    board_data[pid] = {
+        "author": author, "student_id": sid, "title": title, "content": content,
+        "created": datetime.datetime.now().strftime('%Y-%m-%d %H:%M'), "comments": []
+    }
+    save('board', board_data)
+    return redirect('/board')
+
+@app.route('/board/comment', methods=['POST'])
+def board_comment():
+    pid = request.form['post_id']
+    sid = request.form['student_id'].strip()
+    author = request.form['author'].strip()
+    content = request.form['content'].strip()
+    if not all([sid, author, content]):
+        return redirect('/board')
+    students = load('students')
+    if students and sid not in students:
+        return redirect('/board')
+    board_data = load('board')
+    if pid in board_data:
+        board_data[pid]['comments'].append({
+            "author": author, "student_id": sid, "content": content,
+            "created": datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+        })
+        save('board', board_data)
+    return redirect('/board')
+
+@app.route('/board/delete', methods=['POST'])
+def board_delete():
+    if not session.get('admin'):
+        return redirect('/board')
+    board_data = load('board')
+    board_data.pop(request.form['post_id'], None)
+    save('board', board_data)
+    return redirect('/board')
+
+# ── 관리자 ──
 @app.route('/admin/login', methods=['GET','POST'])
 def admin_login():
     if request.method == 'POST':
