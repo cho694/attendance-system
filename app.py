@@ -52,7 +52,7 @@ body{font-family:'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-heig
 .card{background:#1e293b;border-radius:16px;padding:24px;margin-bottom:16px;box-shadow:0 4px 24px rgba(0,0,0,.3)}
 h1{font-size:1.5rem;text-align:center;margin-bottom:20px;color:#38bdf8}
 h2{font-size:1.2rem;color:#38bdf8;margin-bottom:12px}
-input,select{width:100%;padding:12px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:12px;font-size:1rem}
+input,select,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:12px;font-size:1rem}
 button{width:100%;padding:14px;border-radius:12px;border:none;font-size:1rem;font-weight:700;cursor:pointer;transition:.2s}
 .btn-primary{background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff}
 .btn-primary:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(59,130,246,.5)}
@@ -171,6 +171,7 @@ ADMIN_DASH_HTML = BASE_CSS + """
 <div class="nav">
  <a href="/admin/attendance"><button class="btn-sm btn-primary">출석현황</button></a>
  <a href="/admin/teams"><button class="btn-sm btn-success">팀관리</button></a>
+ <a href="/admin/students"><button class="btn-sm" style="background:#f59e0b;color:#fff">학생관리</button></a>
  <a href="/admin/missions"><button class="btn-sm" style="background:#8b5cf6;color:#fff">미션관리</button></a>
  <a href="/admin/logout"><button class="btn-sm btn-danger">로그아웃</button></a>
 </div>
@@ -187,6 +188,7 @@ ADMIN_DASH_HTML = BASE_CSS + """
 <h2>📊 오늘의 요약 ({{today}})</h2>
 <p>개인 출석: <b>{{att_count}}명</b></p>
 <p>팀 출석 완료: <b>{{team_ok}}/{{team_total}}팀</b></p>
+<p>등록된 학생: <b>{{student_count}}명</b></p>
 </div>
 <a class="back" href="/">← 메인으로</a>
 </div>
@@ -201,11 +203,18 @@ ADMIN_ATT_HTML = BASE_CSS + """
 </div>
 <div class="card">
 <h2>{{sel_date}} 출석 ({{att_list|length}}명)</h2>
-<table><tr><th>학번</th><th>이름</th><th>팀</th><th>시간</th></tr>
+<table><tr><th>학번</th><th>이름</th><th>팀</th><th>시간</th><th>삭제</th></tr>
 {% for sid, info in att_list.items() %}
-<tr><td>{{sid}}</td><td>{{info.name}}</td><td>{{info.team}}팀</td><td>{{info.time}}</td></tr>
+<tr><td>{{sid}}</td><td>{{info.name}}</td><td>{{info.team}}팀</td><td>{{info.time}}</td>
+<td><form method="POST" action="/admin/attendance/delete" style="margin:0"><input type="hidden" name="date" value="{{sel_date}}"/><input type="hidden" name="student_id" value="{{sid}}"/><button class="btn-sm btn-danger" type="submit" style="margin:0;padding:4px 8px">X</button></form></td></tr>
 {% endfor %}
 </table>
+{% if att_list %}
+<form method="POST" action="/admin/attendance/clear" style="margin-top:12px">
+<input type="hidden" name="date" value="{{sel_date}}"/>
+<button class="btn-danger" type="submit" onclick="return confirm('{{sel_date}} 출석 기록을 전체 삭제하시겠습니까?')">🗑️ {{sel_date}} 전체 삭제</button>
+</form>
+{% endif %}
 </div>
 <div class="card">
 <h2>팀 출석 현황</h2>
@@ -244,6 +253,51 @@ ADMIN_TEAMS_HTML = BASE_CSS + """
 </div>
 """
 
+ADMIN_STUDENTS_HTML = BASE_CSS + """
+<div class="container">
+<h1>🧑‍🎓 학생 명단 관리</h1>
+<div class="card">
+<h2>학생 개별 추가</h2>
+<form method="POST" action="/admin/students/add">
+ <input name="student_id" placeholder="학번" />
+ <input name="name" placeholder="이름" />
+ <input name="team" placeholder="팀 번호" type="number" min="1" />
+ <button class="btn-primary" type="submit">추가</button>
+</form>
+</div>
+
+<div class="card">
+<h2>학생 일괄 추가</h2>
+<p style="color:#94a3b8;font-size:.85rem;margin-bottom:8px">한 줄에 하나씩: 학번,이름,팀번호</p>
+<form method="POST" action="/admin/students/bulk">
+ <textarea name="bulk" rows="6" placeholder="20210001,홍길동,1&#10;20210002,김철수,1&#10;20210003,이영희,2"></textarea>
+ <button class="btn-success" type="submit">일괄 추가</button>
+</form>
+</div>
+
+{% if msg %}<div class="msg {% if msg_ok %}msg-ok{% else %}msg-err{% endif %}">{{msg}}</div>{% endif %}
+
+<div class="card">
+<h2>등록된 학생 ({{students|length}}명)</h2>
+<table><tr><th>학번</th><th>이름</th><th>팀</th><th>삭제</th></tr>
+{% for sid, info in students.items()|sort(attribute='0') %}
+<tr><td>{{sid}}</td><td>{{info.name}}</td><td>{{info.team}}팀</td>
+<td><form method="POST" action="/admin/students/delete" style="margin:0"><input type="hidden" name="student_id" value="{{sid}}"/><button class="btn-sm btn-danger" type="submit" style="margin:0;padding:4px 8px">X</button></form></td></tr>
+{% endfor %}
+</table>
+</div>
+
+<div class="card">
+<h2>⚠️ 전체 삭제</h2>
+<form method="POST" action="/admin/students/clear">
+ <button class="btn-danger" type="submit" onclick="return confirm('정말 전체 삭제하시겠습니까?')">🗑️ 학생 명단 전체 삭제</button>
+</form>
+</div>
+
+<a class="back" href="/admin">← 대시보드</a>
+</div>
+"""
+
 ADMIN_MISSIONS_HTML = BASE_CSS + """
 <div class="container">
 <h1>🎯 미션 & 공지 관리</h1>
@@ -253,7 +307,7 @@ ADMIN_MISSIONS_HTML = BASE_CSS + """
  <select name="type"><option value="weekly">주간 미션</option><option value="sudden">돌발 미션</option><option value="notice">공지</option></select>
  <input name="week" placeholder="주차 (선택, 예: 1)" />
  <input name="title" placeholder="제목" />
- <textarea name="desc" placeholder="내용" rows="4" style="width:100%;padding:12px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:1rem;margin-bottom:12px"></textarea>
+ <textarea name="desc" placeholder="내용" rows="4"></textarea>
  <button class="btn-primary" type="submit">등록</button>
 </form>
 </div>
@@ -311,6 +365,15 @@ def api_attend():
     sid, name, team = d.get('student_id',''), d.get('name',''), d.get('team','')
     if not all([sid, name, team]):
         return jsonify(ok=False, msg='모든 항목을 입력하세요')
+    students = load('students')
+    if students:
+        if sid not in students:
+            return jsonify(ok=False, msg='❌ 등록되지 않은 학번입니다.')
+        s = students[sid]
+        if s['name'] != name:
+            return jsonify(ok=False, msg='❌ 학번과 이름이 일치하지 않습니다.')
+        if s['team'] != team:
+            return jsonify(ok=False, msg='❌ 학번과 팀 번호가 일치하지 않습니다.')
     today = datetime.date.today().isoformat()
     att = load('attendance')
     if today not in att: att[today] = {}
@@ -363,8 +426,9 @@ def admin_dash():
     today = datetime.date.today().isoformat()
     att = load('attendance').get(today, {})
     ta = check_team_attendance(today)
+    students = load('students')
     return render_template_string(ADMIN_DASH_HTML, today=today, att_count=len(att),
-        team_ok=sum(ta.values()), team_total=len(ta), attend_open=get_attend_status())
+        team_ok=sum(ta.values()), team_total=len(ta), attend_open=get_attend_status(), student_count=len(students))
 
 @app.route('/admin/attend_toggle', methods=['POST'])
 def admin_attend_toggle():
@@ -379,6 +443,27 @@ def admin_att():
     sel = request.args.get('date', today)
     att = load('attendance').get(sel, {})
     return render_template_string(ADMIN_ATT_HTML, today=today, sel_date=sel, att_list=att, team_att=check_team_attendance(sel))
+
+@app.route('/admin/attendance/delete', methods=['POST'])
+def admin_att_delete():
+    if not require_admin(): return redirect('/admin/login')
+    date = request.form['date']
+    sid = request.form['student_id']
+    att = load('attendance')
+    if date in att and sid in att[date]:
+        del att[date][sid]
+        save('attendance', att)
+    return redirect(f'/admin/attendance?date={date}')
+
+@app.route('/admin/attendance/clear', methods=['POST'])
+def admin_att_clear():
+    if not require_admin(): return redirect('/admin/login')
+    date = request.form['date']
+    att = load('attendance')
+    if date in att:
+        del att[date]
+        save('attendance', att)
+    return redirect(f'/admin/attendance?date={date}')
 
 @app.route('/admin/teams')
 def admin_teams():
@@ -405,6 +490,57 @@ def admin_teams_delete():
     teams.pop(request.form['team_id'], None)
     save('teams', teams)
     return redirect('/admin/teams')
+
+@app.route('/admin/students')
+def admin_students():
+    if not require_admin(): return redirect('/admin/login')
+    msg = request.args.get('msg', '')
+    msg_ok = request.args.get('ok', '0') == '1'
+    return render_template_string(ADMIN_STUDENTS_HTML, students=load('students'), msg=msg, msg_ok=msg_ok)
+
+@app.route('/admin/students/add', methods=['POST'])
+def admin_students_add():
+    if not require_admin(): return redirect('/admin/login')
+    sid = request.form['student_id'].strip()
+    name = request.form['name'].strip()
+    team = request.form['team'].strip()
+    if not all([sid, name, team]):
+        return redirect('/admin/students?msg=모든 항목을 입력하세요&ok=0')
+    students = load('students')
+    students[sid] = {"name": name, "team": team}
+    save('students', students)
+    return redirect(f'/admin/students?msg={name}({sid}) 추가 완료&ok=1')
+
+@app.route('/admin/students/bulk', methods=['POST'])
+def admin_students_bulk():
+    if not require_admin(): return redirect('/admin/login')
+    bulk = request.form['bulk'].strip()
+    if not bulk:
+        return redirect('/admin/students?msg=내용을 입력하세요&ok=0')
+    students = load('students')
+    count = 0
+    for line in bulk.split('\n'):
+        parts = [p.strip() for p in line.split(',')]
+        if len(parts) == 3:
+            sid, name, team = parts
+            students[sid] = {"name": name, "team": team}
+            count += 1
+    save('students', students)
+    return redirect(f'/admin/students?msg={count}명 일괄 추가 완료&ok=1')
+
+@app.route('/admin/students/delete', methods=['POST'])
+def admin_students_delete():
+    if not require_admin(): return redirect('/admin/login')
+    students = load('students')
+    students.pop(request.form['student_id'], None)
+    save('students', students)
+    return redirect('/admin/students')
+
+@app.route('/admin/students/clear', methods=['POST'])
+def admin_students_clear():
+    if not require_admin(): return redirect('/admin/login')
+    save('students', {})
+    return redirect('/admin/students?msg=전체 삭제 완료&ok=1')
 
 @app.route('/admin/missions')
 def admin_missions():
