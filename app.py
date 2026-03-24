@@ -47,31 +47,34 @@ def check_team_attendance(date):
 BASE_CSS = """
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',sans-serif;background:url('/static/bg.png') no-repeat center center fixed;background-size:cover;color:#e2e8f0;min-height:100vh}
-.container{max-width:500px;margin:0 auto;padding:20px}
-.card{background:#1e293b;border-radius:16px;padding:24px;margin-bottom:16px;box-shadow:0 4px 24px rgba(0,0,0,.3)}
-h1{font-size:1.5rem;text-align:center;margin-bottom:20px;color:#38bdf8}
-h2{font-size:1.2rem;color:#38bdf8;margin-bottom:12px}
-input,select,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;margin-bottom:12px;font-size:1rem}
+body{font-family:'Segoe UI',sans-serif;background:url('/static/bg.png') no-repeat center center fixed;background-size:cover;color:#1a1a2e;min-height:100vh}
+body::before{content:'';position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.3);z-index:0}
+.container{max-width:500px;margin:0 auto;padding:20px;position:relative;z-index:1}
+.card{background:rgba(255,255,255,0.92);border-radius:16px;padding:24px;margin-bottom:16px;box-shadow:0 4px 24px rgba(0,0,0,.15);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.5)}
+h1{font-size:1.6rem;text-align:center;margin-bottom:20px;color:#1a1a2e;font-weight:800;text-shadow:0 1px 2px rgba(255,255,255,0.8)}
+h2{font-size:1.2rem;color:#1a1a2e;margin-bottom:12px;font-weight:700}
+input,select,textarea{width:100%;padding:12px;border-radius:10px;border:1px solid #ccc;background:rgba(255,255,255,0.95);color:#1a1a2e;margin-bottom:12px;font-size:1rem}
+input::placeholder,textarea::placeholder{color:#888}
 button{width:100%;padding:14px;border-radius:12px;border:none;font-size:1rem;font-weight:700;cursor:pointer;transition:.2s}
-.btn-primary{background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff}
-.btn-primary:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(59,130,246,.5)}
-.btn-danger{background:#ef4444;color:#fff;margin-top:8px}
-.btn-success{background:#10b981;color:#fff;margin-top:8px}
+.btn-primary{background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 4px 16px rgba(37,99,235,.4)}
+.btn-danger{background:#dc2626;color:#fff;margin-top:8px}
+.btn-success{background:#059669;color:#fff;margin-top:8px}
 .btn-sm{width:auto;padding:8px 16px;font-size:.85rem;display:inline-block;margin:4px}
 .tag{display:inline-block;padding:4px 10px;border-radius:20px;font-size:.75rem;font-weight:600}
-.tag-green{background:#065f46;color:#6ee7b7}
-.tag-red{background:#7f1d1d;color:#fca5a5}
-.tag-blue{background:#1e3a5f;color:#93c5fd}
+.tag-green{background:#d1fae5;color:#065f46}
+.tag-red{background:#fee2e2;color:#991b1b}
+.tag-blue{background:#dbeafe;color:#1e40af}
 .msg{text-align:center;padding:16px;border-radius:10px;margin:12px 0;font-weight:600}
-.msg-ok{background:#065f46;color:#6ee7b7}
-.msg-err{background:#7f1d1d;color:#fca5a5}
+.msg-ok{background:#d1fae5;color:#065f46;border:1px solid #6ee7b7}
+.msg-err{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
 table{width:100%;border-collapse:collapse;margin-top:8px}
-th,td{padding:8px;text-align:left;border-bottom:1px solid #334155;font-size:.9rem}
-th{color:#94a3b8}
-a{color:#38bdf8;text-decoration:none}
+th,td{padding:8px;text-align:left;border-bottom:1px solid #e5e7eb;font-size:.9rem}
+th{color:#6b7280;font-weight:600}
+td{color:#1a1a2e}
+a{color:#2563eb;text-decoration:none;font-weight:600}
 .nav{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;justify-content:center}
-.back{display:block;text-align:center;margin-top:16px;color:#94a3b8}
+.back{display:block;text-align:center;margin-top:16px;color:#6b7280;font-weight:600}
 </style>
 """
 
@@ -115,11 +118,11 @@ NOTICE_HTML = BASE_CSS + """
  <span class="tag {% if m.type=='weekly' %}tag-blue{% elif m.type=='sudden' %}tag-red{% else %}tag-green{% endif %}">{{ '주간미션' if m.type=='weekly' else '돌발미션' if m.type=='sudden' else '공지' }}</span>
  {% if m.week %}<span class="tag tag-green">{{m.week}}주차</span>{% endif %}
  <h2 style="margin-top:8px">{{m.title}}</h2>
- <p style="color:#94a3b8;margin-top:8px;white-space:pre-wrap">{{m.desc}}</p>
- <p style="color:#475569;font-size:.8rem;margin-top:8px">{{m.created}}</p>
+ <p style="color:#4b5563;margin-top:8px;white-space:pre-wrap">{{m.desc}}</p>
+ <p style="color:#9ca3af;font-size:.8rem;margin-top:8px">{{m.created}}</p>
 </div>
 {% endfor %}
-{% if not missions %}<div class="card"><p style="text-align:center;color:#64748b">등록된 공지가 없습니다.</p></div>{% endif %}
+{% if not missions %}<div class="card"><p style="text-align:center;color:#9ca3af">등록된 공지가 없습니다.</p></div>{% endif %}
 <a class="back" href="/">← 메인으로</a>
 </div>
 """
@@ -130,7 +133,7 @@ SCORES_HTML = BASE_CSS + """
 <div class="card">
 <table><tr><th>순위</th><th>팀</th><th>점수</th></tr>
 {% for tid, tdata in teams_sorted %}
-<tr><td>{{loop.index}}</td><td>{{tid}}팀</td><td style="font-weight:700;color:#fbbf24">{{tdata.score}}점</td></tr>
+<tr><td>{{loop.index}}</td><td>{{tid}}팀</td><td style="font-weight:700;color:#d97706">{{tdata.score}}점</td></tr>
 {% endfor %}
 </table>
 </div>
@@ -143,10 +146,10 @@ INDEX_HTML = BASE_CSS + """
 <h1>정진:政進</h1>
 <div class="card" style="text-align:center">
  <a href="/attend"><button class="btn-primary" style="margin-bottom:10px">📋 출석하기</button></a>
- <a href="/notices"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#10b981,#3b82f6)">📢 공지 & 미션 확인</button></a>
- <a href="/scores"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#f59e0b,#ef4444)">🏆 팀 점수 확인</button></a>
- <hr style="border-color:#334155;margin:16px 0">
- <a href="/admin/login"><button class="btn-sm" style="background:#334155;color:#94a3b8">🔐 관리자</button></a>
+ <a href="/notices"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#059669,#2563eb)">📢 공지 & 미션 확인</button></a>
+ <a href="/scores"><button class="btn-primary" style="margin-bottom:10px;background:linear-gradient(135deg,#d97706,#dc2626)">🏆 팀 점수 확인</button></a>
+ <hr style="border-color:#e5e7eb;margin:16px 0">
+ <a href="/admin/login"><button class="btn-sm" style="background:#e5e7eb;color:#6b7280">🔐 관리자</button></a>
 </div>
 </div>
 """
@@ -171,8 +174,8 @@ ADMIN_DASH_HTML = BASE_CSS + """
 <div class="nav">
  <a href="/admin/attendance"><button class="btn-sm btn-primary">출석현황</button></a>
  <a href="/admin/teams"><button class="btn-sm btn-success">팀관리</button></a>
- <a href="/admin/students"><button class="btn-sm" style="background:#f59e0b;color:#fff">학생관리</button></a>
- <a href="/admin/missions"><button class="btn-sm" style="background:#8b5cf6;color:#fff">미션관리</button></a>
+ <a href="/admin/students"><button class="btn-sm" style="background:#d97706;color:#fff">학생관리</button></a>
+ <a href="/admin/missions"><button class="btn-sm" style="background:#7c3aed;color:#fff">미션관리</button></a>
  <a href="/admin/logout"><button class="btn-sm btn-danger">로그아웃</button></a>
 </div>
 
@@ -198,7 +201,7 @@ ADMIN_ATT_HTML = BASE_CSS + """
 <div class="container">
 <h1>📋 출석 현황</h1>
 <div class="card">
-<label style="color:#94a3b8">날짜 선택</label>
+<label style="color:#6b7280">날짜 선택</label>
 <input type="date" id="datesel" value="{{today}}" onchange="location.href='/admin/attendance?date='+this.value" />
 </div>
 <div class="card">
@@ -241,8 +244,8 @@ ADMIN_TEAMS_HTML = BASE_CSS + """
 </div>
 {% for tid, tdata in teams.items()|sort(attribute='0') %}
 <div class="card">
-<h2>{{tid}}팀 <span style="color:#fbbf24">{{tdata.score}}점</span></h2>
-<p style="color:#94a3b8">팀원: {{tdata.members|join(', ')}}</p>
+<h2>{{tid}}팀 <span style="color:#d97706">{{tdata.score}}점</span></h2>
+<p style="color:#6b7280">팀원: {{tdata.members|join(', ')}}</p>
 <form method="POST" action="/admin/teams/delete" style="margin-top:8px">
  <input type="hidden" name="team_id" value="{{tid}}"/>
  <button class="btn-sm btn-danger" type="submit">삭제</button>
@@ -268,7 +271,7 @@ ADMIN_STUDENTS_HTML = BASE_CSS + """
 
 <div class="card">
 <h2>학생 일괄 추가</h2>
-<p style="color:#94a3b8;font-size:.85rem;margin-bottom:8px">한 줄에 하나씩: 학번,이름,팀번호</p>
+<p style="color:#6b7280;font-size:.85rem;margin-bottom:8px">한 줄에 하나씩: 학번,이름,팀번호</p>
 <form method="POST" action="/admin/students/bulk">
  <textarea name="bulk" rows="6" placeholder="20210001,홍길동,1&#10;20210002,김철수,1&#10;20210003,이영희,2"></textarea>
  <button class="btn-success" type="submit">일괄 추가</button>
@@ -318,7 +321,7 @@ ADMIN_MISSIONS_HTML = BASE_CSS + """
   {{ '주간미션' if m.type=='weekly' else '돌발미션' if m.type=='sudden' else '공지' }}
  </span>
  <h2 style="margin-top:8px">{{m.title}}</h2>
- <p style="color:#94a3b8;white-space:pre-wrap">{{m.desc}}</p>
+ <p style="color:#4b5563;white-space:pre-wrap">{{m.desc}}</p>
 
  <form method="POST" action="/admin/missions/score" style="margin-top:12px">
   <input type="hidden" name="mission_id" value="{{mid}}"/>
