@@ -1,5 +1,5 @@
 
-import os, json, datetime, qrcode, hashlib
+import os, json, datetime, hashlib
 from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
 
 app = Flask(__name__)
@@ -18,18 +18,19 @@ def save(name, data):
     with open(os.path.join(DATA_DIR, f'{name}.json'), 'w') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# ── 초기 데이터 구조 ──
-# attendance.json: { "2025-03-23": { "학번": {"name":"이름","team":"1","time":"HH:MM:SS"} } }
-# teams.json: { "팀번호": {"members":["학번1","학번2",...], "score": 0} }
-# missions.json: { "id": {"title":"..","desc":"..","type":"weekly/sudden","week":"1","created":"..","scores":{"팀번호":점수}} }
-# admin.json: {"password": "hashed"}
-
 def init_admin():
     a = load('admin')
     if not a:
         a = {"password": hashlib.sha256("admin1234".encode()).hexdigest()}
         save('admin', a)
 init_admin()
+
+def get_attend_status():
+    s = load('attend_status')
+    return s.get('open', False)
+
+def set_attend_status(val):
+    save('attend_status', {'open': val})
 
 def check_team_attendance(date):
     att = load('attendance').get(date, {})
@@ -43,7 +44,6 @@ def check_team_attendance(date):
         result[tid] = all(m in att for m in members)
     return result
 
-# ===================== HTML 템플릿 =====================
 BASE_CSS = """
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -75,11 +75,11 @@ a{color:#38bdf8;text-decoration:none}
 </style>
 """
 
-# ── 출석 페이지 (학생용) ──
 ATTEND_HTML = BASE_CSS + """
 <div class="container">
 <h1>📋 출석 체크</h1>
 <div class="card">
+ <div id="status" style="margin-bottom:12px"></div>
  <input id="sid" placeholder="학번 입력" />
  <input id="sname" placeholder="이름 입력" />
  <input id="steam" placeholder="팀 번호 입력" type="number" min="1" />
@@ -88,6 +88,13 @@ ATTEND_HTML = BASE_CSS + """
 </div>
 </div>
 <script>
+async function checkStatus(){
+ const r=await fetch('/api/attend_status');
+ const d=await r.json();
+ if(!d.open) document.getElementById('status').innerHTML='<div class="msg msg-err">⛔ 현재 출석이 마감되었습니다</div>';
+ else document.getElementById('status').innerHTML='<div class="msg msg-ok">✅ 출석이 열려있습니다</div>';
+}
+checkStatus();
 async function attend(){
  const sid=document.getElementById('sid').value.trim();
  const sname=document.getElementById('sname').value.trim();
@@ -100,13 +107,12 @@ async function attend(){
 </script>
 """
 
-# ── 공지/미션 열람 (학생용) ──
 NOTICE_HTML = BASE_CSS + """
 <div class="container">
 <h1>📢 공지 & 미션</h1>
 {% for mid, m in missions.items()|sort(attribute='1.created', reverse=True) %}
 <div class="card">
- <span class="tag {% if m.type=='weekly' %}tag-blue{% else %}tag-red{% endif %}">{{ '주간미션' if m.type=='weekly' else '돌발미션' if m.type=='sudden' else '공지' }}</span>
+ <span class="tag {% if m.type=='weekly' %}tag-blue{% elif m.type=='sudden' %}tag-red{% else %}tag-green{% endif %}">{{ '주간미션' if m.type=='weekly' else '돌발미션' if m.type=='sudden' else '공지' }}</span>
  {% if m.week %}<span class="tag tag-green">{{m.week}}주차</span>{% endif %}
  <h2 style="margin-top:8px">{{m.title}}</h2>
  <p style="color:#94a3b8;margin-top:8px;white-space:pre-wrap">{{m.desc}}</p>
@@ -118,15 +124,13 @@ NOTICE_HTML = BASE_CSS + """
 </div>
 """
 
-# ── 팀 점수 확인 (학생용) ──
 SCORES_HTML = BASE_CSS + """
 <div class="container">
 <h1>🏆 팀 점수 현황</h1>
 <div class="card">
-<table><tr><th>팀</th><th>점수</th><th>오늘 출석</th></tr>
-{% for tid, tdata in teams.items()|sort(attribute='0') %}
-<tr><td>{{tid}}팀</td><td style="font-weight:700;color:#fbbf24">{{tdata.score}}점</td>
-<td>{% if team_att.get(tid) %}<span class="tag tag-green">완료</span>{% else %}<span class="tag tag-red">미완</span>{% endif %}</td></tr>
+<table><tr><th>순위</th><th>팀</th><th>점수</th></tr>
+{% for tid, tdata in teams_sorted %}
+<tr><td>{{loop.index}}</td><td>{{tid}}팀</td><td style="font-weight:700;color:#fbbf24">{{tdata.score}}점</td></tr>
 {% endfor %}
 </table>
 </div>
@@ -134,7 +138,6 @@ SCORES_HTML = BASE_CSS + """
 </div>
 """
 
-# ── 메인 페이지 ──
 INDEX_HTML = BASE_CSS + """
 <div class="container">
 <h1>🎓 출석 & 미션 관리 시스템</h1>
@@ -148,7 +151,6 @@ INDEX_HTML = BASE_CSS + """
 </div>
 """
 
-# ── 관리자 로그인 ──
 ADMIN_LOGIN_HTML = BASE_CSS + """
 <div class="container">
 <h1>🔐 관리자 로그인</h1>
@@ -163,7 +165,6 @@ ADMIN_LOGIN_HTML = BASE_CSS + """
 </div>
 """
 
-# ── 관리자 대시보드 ──
 ADMIN_DASH_HTML = BASE_CSS + """
 <div class="container">
 <h1>⚙️ 관리자 대시보드</h1>
@@ -172,6 +173,14 @@ ADMIN_DASH_HTML = BASE_CSS + """
  <a href="/admin/teams"><button class="btn-sm btn-success">팀관리</button></a>
  <a href="/admin/missions"><button class="btn-sm" style="background:#8b5cf6;color:#fff">미션관리</button></a>
  <a href="/admin/logout"><button class="btn-sm btn-danger">로그아웃</button></a>
+</div>
+
+<div class="card" style="text-align:center">
+<h2>🔒 출석 관리</h2>
+<p style="margin-bottom:12px">현재 상태: {% if attend_open %}<span class="tag tag-green" style="font-size:1.1rem">✅ 출석 열림</span>{% else %}<span class="tag tag-red" style="font-size:1.1rem">⛔ 출석 닫힘</span>{% endif %}</p>
+<form method="POST" action="/admin/attend_toggle">
+{% if attend_open %}<button class="btn-danger" style="width:60%">🔒 출석 마감하기</button>{% else %}<button class="btn-success" style="width:60%">🔓 출석 열기</button>{% endif %}
+</form>
 </div>
 
 <div class="card">
@@ -183,7 +192,6 @@ ADMIN_DASH_HTML = BASE_CSS + """
 </div>
 """
 
-# ── 관리자: 출석현황 ──
 ADMIN_ATT_HTML = BASE_CSS + """
 <div class="container">
 <h1>📋 출석 현황</h1>
@@ -211,7 +219,6 @@ ADMIN_ATT_HTML = BASE_CSS + """
 </div>
 """
 
-# ── 관리자: 팀관리 ──
 ADMIN_TEAMS_HTML = BASE_CSS + """
 <div class="container">
 <h1>👥 팀 관리</h1>
@@ -237,7 +244,6 @@ ADMIN_TEAMS_HTML = BASE_CSS + """
 </div>
 """
 
-# ── 관리자: 미션관리 ──
 ADMIN_MISSIONS_HTML = BASE_CSS + """
 <div class="container">
 <h1>🎯 미션 & 공지 관리</h1>
@@ -293,9 +299,15 @@ def index():
 def attend_page():
     return render_template_string(ATTEND_HTML)
 
+@app.route('/api/attend_status')
+def api_attend_status():
+    return jsonify(open=get_attend_status())
+
 @app.route('/api/attend', methods=['POST'])
 def api_attend():
     d = request.json
+    if not get_attend_status():
+        return jsonify(ok=False, msg='⛔ 현재 출석이 마감되었습니다.')
     sid, name, team = d.get('student_id',''), d.get('name',''), d.get('team','')
     if not all([sid, name, team]):
         return jsonify(ok=False, msg='모든 항목을 입력하세요')
@@ -306,7 +318,6 @@ def api_attend():
         return jsonify(ok=False, msg=f'{name}님은 이미 출석했습니다 ({att[today][sid]["time"]})')
     att[today][sid] = {"name": name, "team": team, "time": datetime.datetime.now().strftime("%H:%M:%S")}
     save('attendance', att)
-    # 팀 출석 체크
     teams = load('teams')
     team_msg = ""
     if team in teams:
@@ -324,10 +335,10 @@ def notices():
 
 @app.route('/scores')
 def scores():
-    today = datetime.date.today().isoformat()
-    return render_template_string(SCORES_HTML, teams=load('teams'), team_att=check_team_attendance(today))
+    teams = load('teams')
+    teams_sorted = sorted(teams.items(), key=lambda x: x[1].get('score',0), reverse=True)
+    return render_template_string(SCORES_HTML, teams_sorted=teams_sorted)
 
-# ── 관리자 ──
 @app.route('/admin/login', methods=['GET','POST'])
 def admin_login():
     if request.method == 'POST':
@@ -353,7 +364,13 @@ def admin_dash():
     att = load('attendance').get(today, {})
     ta = check_team_attendance(today)
     return render_template_string(ADMIN_DASH_HTML, today=today, att_count=len(att),
-        team_ok=sum(ta.values()), team_total=len(ta))
+        team_ok=sum(ta.values()), team_total=len(ta), attend_open=get_attend_status())
+
+@app.route('/admin/attend_toggle', methods=['POST'])
+def admin_attend_toggle():
+    if not require_admin(): return redirect('/admin/login')
+    set_attend_status(not get_attend_status())
+    return redirect('/admin')
 
 @app.route('/admin/attendance')
 def admin_att():
@@ -417,7 +434,6 @@ def admin_missions_score():
     if mid in missions:
         missions[mid]['scores'][tid] = sc
         save('missions', missions)
-        # 팀 총점 갱신
         teams = load('teams')
         if tid in teams:
             total = sum(m['scores'].get(tid, 0) for m in missions.values())
